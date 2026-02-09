@@ -11,7 +11,9 @@ class SteamWebMail:
         self.base_url = "https://steamwebmail.com/"
         self.session = requests.Session()
 
+        # Настройка прокси
         if proxy:
+            # Формат прокси: "http://user:pass@host:port" или "http://host:port"
             self.session.proxies = {
                 "http": proxy,
                 "https": proxy
@@ -28,11 +30,12 @@ class SteamWebMail:
         self.session.headers.update(self.headers)
 
         self.xtoken = None
-        self.auth_hash = "0" 
+        self.auth_hash = "0"  # Изначально мы гости
 
     def _get_app_data(self):
         """Внутренний метод для получения актуального токена и хеша сессии"""
         timestamp = int(time.time() * 1000)
+        # Если мы уже авторизованы, auth_hash обновится автоматически из ответа
         url = f"{self.base_url}?/AppData@no-mobile-0/{self.auth_hash}/{timestamp}/"
 
         try:
@@ -41,6 +44,7 @@ class SteamWebMail:
             if match:
                 data = json.loads(match.group(1))
                 self.xtoken = data.get("System", {}).get("token")
+                # Обновляем хеш аккаунта, если он появился (после логина)
                 if data.get("AuthAccountHash"):
                     self.auth_hash = data.get("AuthAccountHash")
                 return data
@@ -52,9 +56,11 @@ class SteamWebMail:
         """Метод для авторизации"""
         print(f"[*] Попытка входа для {self.email}...")
 
+        # 1. Получаем стартовый токен
         if not self._get_app_data():
             return False
 
+        # 2. Шлем запрос на логин
         login_url = f"{self.base_url}?/Ajax/&q[]=/0/"
         payload = {
             "Email": self.email,
@@ -74,6 +80,7 @@ class SteamWebMail:
 
             if result.get("Result") is True:
                 print("[+] Логин успешен. Обновляем сессию...")
+                # После логина ОБЯЗАТЕЛЬНО обновляем AppData, чтобы получить AuthAccountHash
                 self._get_app_data()
                 return True
             else:
@@ -117,6 +124,7 @@ class SteamWebMail:
             collection = data["Result"].get("@Collection", [])
 
             for msg in collection:
+                # Парсим отправителя (учитываем странности их API)
                 from_email = "Unknown"
                 from_data = msg.get("From")
                 if isinstance(from_data, list) and len(from_data) > 0:
@@ -156,3 +164,34 @@ class SteamWebMail:
             print(f"[-] Ошибка получения тела письма: {e}")
             return None
 
+
+# --- Пример использования ---
+# if __name__ == "__main__":
+#     # Можно добавить прокси: "http://login:pass@ip:port"
+#     # или оставить None
+#     PROXY = None
+#
+#     mail = SteamWebMail(
+#         email="dy446323@buyma31.icu",
+#         password="22324504",
+#         proxy=PROXY
+#     )
+#
+#     if mail.login():
+#         # 1. Папки
+#         folders = mail.get_folders()
+#         print(f"[*] Доступно папок: {len(folders.get('Result', {}).get('@Collection', []))}")
+#
+#         # 2. Письма
+#         messages = mail.get_messages(folder="INBOX")
+#         print(f"[*] Найдено писем в INBOX: {len(messages)}")
+#
+#         for m in messages:
+#             print(f"--- [{m['uid']}] {m['from']} : {m['subject']}")
+#
+#         # 3. Чтение последнего письма
+#         if messages:
+#             last_uid = messages[0]['uid']
+#             body = mail.get_message_body(last_uid)
+#             print("\n[ТЕКСТ ПОСЛЕДНЕГО ПИСЬМА]:")
+#             print(body[:2000] + "...")  # Печатаем первые 2000 символов
